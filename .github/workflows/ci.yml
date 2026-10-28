@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile all scripts
+        run: python -m compileall -q . tests
+      - name: Run test suites
+        # The test scripts exit 0 with a SKIP message when
+        # ffmpeg/ffprobe are not on PATH (Windows runners), and
+        # run the real encodes on runners that have them.
+        run: |
+          python tests/test_smoke.py
+          python tests/test_dvd_ingest.py
+          python tests/test_camcorder_ingest.py

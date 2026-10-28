@@ -1,0 +1,12 @@
+# LF line endings everywhere, so a checkout on Windows (CRLF) does
+# not dirty every file against the LF history — the failure mode
+# this suite's predecessors hit on extraction.
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf

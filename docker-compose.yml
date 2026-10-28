@@ -1,0 +1,19 @@
+# Example only: adjust paths, encoder, and device lines for your host.
+# See README "Headless / Docker (Unraid)" before uncommenting GPU lines.
+services:
+  hevc-pipeline:
+    build: .
+    volumes:
+      - /mnt/user/media:/mnt/media:rw
+      - ./state:/app/state
+    # NVIDIA NVENC (needs NVIDIA Container Toolkit on the host):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{capabilities: [gpu]}]
+    # Intel Quick Sync:
+    # devices:
+    #   - /dev/dri:/dev/dri
+    command: >
+      python pipeline.py --scan-dir /mnt/media --db /app/state/state.db
+      --encoder x265 --jobs 1

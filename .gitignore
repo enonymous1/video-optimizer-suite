@@ -1,0 +1,36 @@
+# Runtime state and outputs — never committed.
+# The pipeline writes these next to wherever you run it; they are
+# library-specific (paths, sizes, conversion history) and must not
+# reach a public repo.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.lock
+reports/
+converted/
+logs/
+state/
+*.conversion.json
+*.concat-list.txt
+.*hevc-part*
+*.bak
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
