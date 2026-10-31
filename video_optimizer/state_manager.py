@@ -51,10 +51,10 @@ Usage as a library:
     db.set_status(job["path"], "converting")
 
 Usage as a CLI:
-    python state_manager.py import --report reports/*.json --db state.db
-    python state_manager.py list --db state.db --status pending --limit 20
-    python state_manager.py summary --db state.db
-    python state_manager.py export --db state.db --out reports/state.json
+    video-state import --report reports/*.json --db state.db
+    video-state list --db state.db --status pending --limit 20
+    video-state summary --db state.db
+    video-state export --db state.db --out reports/state.json
 """
 from __future__ import annotations
 

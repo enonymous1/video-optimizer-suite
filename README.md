@@ -20,8 +20,8 @@ report   state.db    converted/ tree        original paths,
 (JSON)               (HEVC files)           now HEVC, .bak kept
 ```
 
-`pipeline.py` is the driver that runs scan → import → convert in one
-command. `dashboard.py` is a read-only view of `state.db` — it does
+`video_optimizer/pipeline.py` is the driver that runs scan → import → convert in one
+command. `video_optimizer/dashboard.py` is a read-only view of `state.db` — it does
 not feed the pipeline, it watches it.
 
 ![Pipeline architecture](docs/assets/architecture.svg)
@@ -36,15 +36,15 @@ not feed the pipeline, it watches it.
   staging file and never marks the job converted.
 - Replacing an original is opt-in, backed up (`.bak`), atomic
   (`os.replace` on the same filesystem), and rolled back on failure.
-- Already-converted files are swapped with `swap_originals.py`,
+- Already-converted files are swapped with `video_optimizer/swap_originals.py`,
   **not** by re-running the converter with `--replace` — that
   re-run selects nothing under `--skip-done` (every row already
   says `converted`) or re-encodes everything under
   `--no-skip-done`. See [Swapping](#swapping-already-converted-files).
 
 **What it handles:** flat video files (the bundled scanner), DVD
-title sets (`dvd_ingest.py`), and legacy camcorder files
-(`camcorder_ingest.py`). Encoders are swappable with one flag:
+title sets (`video_optimizer/dvd_ingest.py`), and legacy camcorder files
+(`video_optimizer/camcorder_ingest.py`). Encoders are swappable with one flag:
 CPU `libx265` (best compression), NVIDIA NVENC (`hevc_nvenc`),
 Intel Quick Sync (`hevc_qsv`). There is no silent fallback — asking
 for NVENC/QSV without working hardware fails fast, before any file
@@ -87,14 +87,15 @@ is touched.
 
 ## Installation
 
-There is no package to install for the core scripts — they are
-stdlib-only Python files that run from this folder. Only the
-dashboard needs a third-party package.
+The suite is an installable package (`video_optimizer/`, see
+`pyproject.toml`). Installing it gives you the short command
+names used throughout this README (`video-scan`,
+`hevc-convert`, …). The core tools are stdlib-only; Flask
+serves the dashboard and tqdm draws progress bars (the code
+runs without tqdm), and both come with the install.
 
 ```bash
-# 1. Get the code (zip extract, or clone once the repo is pushed)
-#    The suite is one folder; keep it intact — the scripts import
-#    each other as sibling modules (see common.py).
+# 1. Get the code (zip extract, or clone the repo)
 cd video-optimizer-suite
 
 # 2. (Recommended) a virtual environment, so Flask/tqdm do not
@@ -105,17 +106,23 @@ source .venv/bin/activate
 # Windows PowerShell:
 .venv\Scripts\Activate.ps1
 
-# 3. Install the optional dependencies
-pip install -r requirements.txt   # Flask + tqdm; tqdm is optional at runtime
+# 3. Install the package (editable: code edits take effect at once)
+pip install -e .
 ```
+
+Without an install, every command below also works from the
+suite folder as `python -m video_optimizer.<module>` — e.g.
+`python -m video_optimizer.hevc_convert --db state.db` — but
+the console-script names are the documented form, and cron
+jobs and the Docker image use them.
 
 Verify the toolchain before a real run:
 
 ```bash
 ffmpeg -version | head -1
 ffprobe -version | head -1
-python video_optimizer_scan.py --help
-python hevc_convert.py --help
+video-scan --help
+hevc-convert --help
 ```
 
 If `ffmpeg` is not found, the converter exits 2 with a plain
@@ -130,21 +137,21 @@ not the library.
 # 1. Inspect: scan a library into reports/
 #    Always pass --dir and --out-dir; without them the scanner
 #    prompts interactively and cannot run under cron.
-python video_optimizer_scan.py --dir /mnt/media --threads 8 --out-dir reports
+video-scan --dir /mnt/media --threads 8 --out-dir reports
 
 # 2. Import the report into SQLite state
-python state_manager.py import --report reports/video_optimization_report.json --db state.db
-python state_manager.py summary --db state.db
+video-state import --report reports/video_optimization_report.json --db state.db
+video-state summary --db state.db
 
 # 3. Preview, then convert High Priority (originals untouched)
-python hevc_convert.py --db state.db --dry-run
-python hevc_convert.py --db state.db --encoder x265
+hevc-convert --db state.db --dry-run
+hevc-convert --db state.db --encoder x265
 
 # 4. When you trust it, swap the verified encodes into place
 #    (see Swapping below — do NOT re-run with --replace here)
-python swap_originals.py --report reports/video_optimization_report.json --dry-run
-python swap_originals.py --report reports/video_optimization_report.json --only "FirstFile" --yes
-python swap_originals.py --report reports/video_optimization_report.json --yes
+swap-originals --report reports/video_optimization_report.json --dry-run
+swap-originals --report reports/video_optimization_report.json --only "FirstFile" --yes
+swap-originals --report reports/video_optimization_report.json --yes
 
 # 5. Tell Plex/Jellyfin to pick up the new files
 #    Plex: Scan Library Files · Jellyfin: Scan Library
@@ -154,7 +161,7 @@ One-command version (scan → import → convert, lockfile-protected,
 cron-friendly):
 
 ```bash
-python pipeline.py --scan-dir /mnt/media --db state.db --encoder x265
+video-pipeline --scan-dir /mnt/media --db state.db --encoder x265
 ```
 
 Two quickstart traps, stated up front because both have bitten
@@ -166,7 +173,7 @@ real runs:
   files are silently skipped — a "finished" run with the biggest
   files untouched. Pass `--yes` for unattended runs.
 - **A bare report filename only works in the folder containing
-  the report.** `python state_manager.py import --report
+  the report.** `video-state import --report
   video_optimization_report.json` fails with a clean error (with
   a `reports/` suggestion) unless that file is in your current
   directory. Use the full path the scanner actually wrote.
@@ -175,23 +182,26 @@ real runs:
 
 ### Layout
 
+All code lives in the `video_optimizer/` package; the root holds only packaging, docs, and config. There are no scripts left in the root — pre-2.4.0 checkouts must delete the old root `.py` files after migrating (see the migration note in `CHANGELOG.md`).
+
 | File | Role |
 |---|---|
-| `video_optimizer_scan.py` | Analyzer (bundled scanner) — ffprobe scan, candidate flags, CSV/JSON/Markdown reports. Its HEVC savings targets were patched 2026-10-25 to conservative values (1080p: 3.0 Mbps, not the original 2.25); only the `Estimated_*` columns changed, not the candidate thresholds or the converter's CRF encoding. |
-| `state_manager.py` | SQLite state + CLI (`import` / `list` / `summary` / `export` / `recover`): atomic job claiming, `interrupted` recovery, fingerprint (size + mtime) so a changed file is re-queued instead of skipped forever. Export writes the core columns back to scanner-style JSON; it is a subset — `Bloat_Flags`, `Crop_*`, `Bit_Depth`, `Pixel_Format`, `FPS`, and some scan columns do not round-trip. |
-| `hevc_convert.py` | Processor + verifier + replacer: `--encoder x265/nvenc/qsv`, same-filesystem staging, SIGINT/SIGTERM cleanup to `interrupted` (never `converted`), `--replace` with backup + timestamp/permission preservation + rollback. |
-| `swap_originals.py` | Swap already-converted HEVC files into place without re-encoding: report/log pairing, verify gate, staged copy, `.bak` backup, atomic publish, rollback, `--recover`. |
-| `quality_check.py` | Verifier library + CLI (duration, HEVC codec, audio makeup, full-decode corruption check, suspiciously-small tripwire, optional SSIM/VMAF sample — advisory only). Encode-log parsing (`--encode-log`) exists only in this CLI; the converter's gate does not include it. |
-| `encoders.py` | Encoder profiles + preflight (the swap point). Quality numbers are per-encoder: CRF (x265), CQ (NVENC), `global_quality` (QSV), all via the single `--crf` flag. |
-| `resources.py` | Machine-resource sizing (stdlib, psutil optional): `--auto-jobs` and `--threads-per-job`. Sizing is at startup only — no mid-run load or thermal monitoring. |
-| `common.py` | Shared helpers (byte/duration formatting, console logging, atomic JSON writes) imported by the scanner, converter, and swap script, so the copies cannot drift again. |
-| `pipeline.py` | End-to-end driver with a PID lockfile. |
-| `dashboard.py` | Flask + Jinja2 read-only dashboard (app factory, HTMX summary polling). No delete or re-encode buttons, on purpose. |
-| `stills.py` | Still grabber — single / batch / original-vs-converted side-by-side, with count / interval / timestamps / percents, accurate or fast seek, and a manifest per run. |
-| `crf_test.py` | CRF ladder on a short clip — reference clip + encodes at each CRF + size/bitrate table + rough full-file projection + stills compare per CRF. Projections are scene-dependent: order of magnitude only. |
-| `dvd_ingest.py` | DVD ingest — VIDEO_TS discovery, VTS grouping, IFO headers, one report row per title set, menu preview frames. `--replace` is refused for DVD jobs (the original is a directory). |
-| `camcorder_ingest.py` | Camcorder ingest — `.mod` / `.tod` / `.m2t` plus camcorder formats the scanner misses, with metadata sidecars and field-order deinterlace. HandBrakeCLI is not used. |
+| `video_optimizer/video_optimizer_scan.py` | Analyzer (bundled scanner) — ffprobe scan, candidate flags, CSV/JSON/Markdown reports. Its HEVC savings targets were patched 2026-10-25 to conservative values (1080p: 3.0 Mbps, not the original 2.25); only the `Estimated_*` columns changed, not the candidate thresholds or the converter's CRF encoding. |
+| `video_optimizer/state_manager.py` | SQLite state + CLI (`import` / `list` / `summary` / `export` / `recover`): atomic job claiming, `interrupted` recovery, fingerprint (size + mtime) so a changed file is re-queued instead of skipped forever. Export writes the core columns back to scanner-style JSON; it is a subset — `Bloat_Flags`, `Crop_*`, `Bit_Depth`, `Pixel_Format`, `FPS`, and some scan columns do not round-trip. |
+| `video_optimizer/hevc_convert.py` | Processor + verifier + replacer: `--encoder x265/nvenc/qsv`, same-filesystem staging, SIGINT/SIGTERM cleanup to `interrupted` (never `converted`), `--replace` with backup + timestamp/permission preservation + rollback. |
+| `video_optimizer/swap_originals.py` | Swap already-converted HEVC files into place without re-encoding: report/log pairing, verify gate, staged copy, `.bak` backup, atomic publish, rollback, `--recover`. |
+| `video_optimizer/quality_check.py` | Verifier library + CLI (duration, HEVC codec, audio makeup, full-decode corruption check, suspiciously-small tripwire, optional SSIM/VMAF sample — advisory only). Encode-log parsing (`--encode-log`) exists only in this CLI; the converter's gate does not include it. |
+| `video_optimizer/encoders.py` | Encoder profiles + preflight (the swap point). Quality numbers are per-encoder: CRF (x265), CQ (NVENC), `global_quality` (QSV), all via the single `--crf` flag. |
+| `video_optimizer/resources.py` | Machine-resource sizing (stdlib, psutil optional): `--auto-jobs` and `--threads-per-job`. Sizing is at startup only — no mid-run load or thermal monitoring. |
+| `video_optimizer/common.py` | Shared helpers (byte/duration formatting, console logging, atomic JSON writes) imported by the scanner, converter, and swap script, so the copies cannot drift again. |
+| `video_optimizer/pipeline.py` | End-to-end driver with a PID lockfile. |
+| `video_optimizer/dashboard.py` | Flask + Jinja2 read-only dashboard (app factory, HTMX summary polling). No delete or re-encode buttons, on purpose. |
+| `video_optimizer/stills.py` | Still grabber — single / batch / original-vs-converted side-by-side, with count / interval / timestamps / percents, accurate or fast seek, and a manifest per run. |
+| `video_optimizer/crf_test.py` | CRF ladder on a short clip — reference clip + encodes at each CRF + size/bitrate table + rough full-file projection + stills compare per CRF. Projections are scene-dependent: order of magnitude only. |
+| `video_optimizer/dvd_ingest.py` | DVD ingest — VIDEO_TS discovery, VTS grouping, IFO headers, one report row per title set, menu preview frames. `--replace` is refused for DVD jobs (the original is a directory). |
+| `video_optimizer/camcorder_ingest.py` | Camcorder ingest — `.mod` / `.tod` / `.m2t` plus camcorder formats the scanner misses, with metadata sidecars and field-order deinterlace. HandBrakeCLI is not used. |
 | `tests/` | Test suites, stdlib only, no pytest needed: `test_smoke.py` (end-to-end), `test_dvd_ingest.py`, `test_camcorder_ingest.py`, `test_swap_originals.py`, `test_dashboard.py` (skips when Flask is missing). |
+| `pyproject.toml` | Packaging: setuptools build, `video_optimizer` package, and the console-script entry points (`video-scan`, `hevc-convert`, …). |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | Container build and example compose setup. |
 | `CHANGELOG.md` | Version history. |
 
@@ -210,8 +220,7 @@ The suites use synthetic files and CPU x265 only. NVENC/QSV are
 preflight-checked, not encode-tested, because the test box has no
 GPU — hardware encodes are a post-push, on-hardware gate. CI
 (`.github/workflows/ci.yml`) runs compile + all five suites on
-Ubuntu/Windows, Python 3.10–3.12, after `pip install -r
-requirements.txt`.
+Ubuntu/Windows, Python 3.10–3.12, after `pip install -e .`.
 
 ### Adding a feature without copying probe helpers
 
@@ -223,7 +232,7 @@ rules already disagreed once). New ingest lanes should reuse
 and add their rows through `state_manager.import_report()` —
 not by writing a second scanner. New flags belong on the
 converter's typed options, not on a reconstructed argv list in
-`pipeline.py` (the current argv round-trip is a known drift
+`video_optimizer/pipeline.py` (the current argv round-trip is a known drift
 source; see `REVIEW.md`).
 
 ## Deployment
@@ -232,7 +241,7 @@ source; see `REVIEW.md`).
 
 ```bash
 docker compose build
-docker compose up   # runs pipeline.py once (x265, --jobs 1); see docker-compose.yml
+docker compose up   # runs video-pipeline once (x265, --jobs 1); see docker-compose.yml
 ```
 
 Notes that matter in production:
@@ -241,7 +250,7 @@ Notes that matter in production:
   `state.db`, and `*.bak` from the image — `.gitignore` alone does
   not apply to Docker builds, and an earlier build context would
   have baked library paths and conversion history into the image.
-- The image runs as root and its `CMD` is `pipeline.py --help`;
+- The image runs as root and its `CMD` is `video-pipeline --help`;
   compose overrides the command. Keep `state.db` on a persistent
   volume (the compose file mounts `./state`), never in the
   container layer.
@@ -258,14 +267,14 @@ Notes that matter in production:
 
 ```bash
 # Daily, unattended: --yes approves large files (see Quickstart trap)
-0 2 * * * cd /path/to/video-optimizer-suite && python pipeline.py --scan-dir /mnt/media --db state.db --encoder x265 --yes >> logs/pipeline.log 2>&1
+0 2 * * * cd /path/to/video-optimizer-suite && video-pipeline --scan-dir /mnt/media --db state.db --encoder x265 --yes >> logs/pipeline.log 2>&1
 ```
 
-- `pipeline.py` holds a PID lockfile (`<db>.lock`): a second run
+- `video_optimizer/pipeline.py` holds a PID lockfile (`<db>.lock`): a second run
   exits instead of double-encoding. A stale lock from a killed
   run is reclaimed, but PID reuse can make a dead run look live —
   check the process before deleting a lock by hand.
-- `--dry-run` on `pipeline.py` still runs scan + import and only
+- `--dry-run` on `video_optimizer/pipeline.py` still runs scan + import and only
   dry-runs the convert stage; treat it as a convert dry run, not
   an end-to-end one.
 - State upgrades: `state_manager` migrates older DBs with ad-hoc
@@ -332,12 +341,12 @@ cheap at CRF. Flag first, decide by hand.
 
 ```bash
 # CPU x265 (default): best compression, slowest
-python hevc_convert.py --db state.db --encoder x265 --crf 20 --preset slow
+hevc-convert --db state.db --encoder x265 --crf 20 --preset slow
 # NVIDIA RTX-class, typically faster but larger at the same
 # perceptual quality — measure on your hardware; the suite ships no benchmark
-python hevc_convert.py --db state.db --encoder nvenc --crf 20 --preset p7 --jobs 2
+hevc-convert --db state.db --encoder nvenc --crf 20 --preset p7 --jobs 2
 # Intel Quick Sync (i9-10850K UHD 630)
-python hevc_convert.py --db state.db --encoder qsv --crf 20 --preset medium
+hevc-convert --db state.db --encoder qsv --crf 20 --preset medium
 ```
 
 Quality numbers are per-encoder (`--crf` means CRF / CQ /
@@ -373,8 +382,8 @@ Warnings (logged, do not block): subtitle count changed
 original, resolution/FPS drift. Standalone use:
 
 ```bash
-python quality_check.py original.mkv converted.mkv --json
-python quality_check.py original.mkv converted.mkv --sample-quality --json
+video-quality-check original.mkv converted.mkv --json
+video-quality-check original.mkv converted.mkv --sample-quality --json
 ```
 
 ### Stills and the CRF ladder
@@ -385,9 +394,9 @@ size alone does not prove miniature detail survived:
 ```bash
 # One clip, three CRFs, stills compares per CRF (defaults: start
 # 600s, 90s clip, CRFs 20/22/24, preset slow, 6 stills per CRF)
-python crf_test.py --input "Movie.mkv" --out-dir crf-test-movie
+crf-test --input "Movie.mkv" --out-dir crf-test-movie
 # Full-file original-vs-converted stills compare
-python stills.py compare --original "Movie.mkv" --converted "converted/Movie.hevc.mkv" --out-dir stills/movie-full --count 12
+video-stills compare --original "Movie.mkv" --converted "converted/Movie.hevc.mkv" --out-dir stills/movie-full --count 12
 ```
 
 Pick the clip with miniature detail, texture, and movement —
@@ -399,11 +408,11 @@ keyframes and can be seconds off, differently per file.
 ### Swapping already-converted files
 
 ```bash
-python swap_originals.py --report reports/video_optimization_report.json --dry-run
-python swap_originals.py --report reports/video_optimization_report.json --only "Goblins" --yes
-python swap_originals.py --report reports/video_optimization_report.json --yes
+swap-originals --report reports/video_optimization_report.json --dry-run
+swap-originals --report reports/video_optimization_report.json --only "Goblins" --yes
+swap-originals --report reports/video_optimization_report.json --yes
 # Pairing from the conversion log instead of (or as well as) the report:
-python swap_originals.py --log converted/conversion_log.json --yes
+swap-originals --log converted/conversion_log.json --yes
 ```
 
 Pairing comes from the report's `Output_Path` and/or the log's
@@ -429,7 +438,7 @@ deleted after a successful swap.
 Replacing *while encoding* still works for fresh runs:
 
 ```bash
-python hevc_convert.py --db state.db --encoder x265 --replace --yes
+hevc-convert --db state.db --encoder x265 --replace --yes
 # Backups: <original>.bak alongside, or --backup-dir <dir>.
 # --purge-backup deletes the backup in that same successful run.
 ```
@@ -439,15 +448,15 @@ python hevc_convert.py --db state.db --encoder x265 --replace --yes
 ```bash
 # DVD: one job per title set (VOBs are concat-encoded with bwdif
 # deinterlace; --dvd-mode 1080p adds a Lanczos upscale)
-python dvd_ingest.py scan "D:/Media/DVDs" --out-dir reports
-python state_manager.py import --report reports/dvd_report.json --db state.db
-python hevc_convert.py --db state.db --encoder x265 --dvd-mode 480p
-python dvd_ingest.py previews -i "D:/Media/Movie/VIDEO_TS" -o menu_previews
+dvd-ingest scan "D:/Media/DVDs" --out-dir reports
+video-state import --report reports/dvd_report.json --db state.db
+hevc-convert --db state.db --encoder x265 --dvd-mode 480p
+dvd-ingest previews -i "D:/Media/Movie/VIDEO_TS" -o menu_previews
 
 # Camcorder: legacy files the scanner misses, metadata sidecars carried
-python camcorder_ingest.py scan "D:/Camcorder" --out-dir reports
-python state_manager.py import --report reports/camcorder_report.json --db state.db
-python pipeline.py --scan-dir /mnt/media --camcorder-dir /mnt/camcorder --db state.db
+camcorder-ingest scan "D:/Camcorder" --out-dir reports
+video-state import --report reports/camcorder_report.json --db state.db
+video-pipeline --scan-dir /mnt/media --camcorder-dir /mnt/camcorder --db state.db
 ```
 
 DVD outputs always land in `--out-dir` (mirroring `--scan-root`);
@@ -475,7 +484,7 @@ output only after a verified publish, never after a failure.
 | Symptom | Cause and fix |
 |---|---|
 | `ERROR: Report not found` (exit 2) | Bare filename resolved from the current directory only. Pass the full path the scanner wrote, e.g. `reports/video_optimization_report.json`, or `cd` to its folder first. No empty `state.db` is created on this failure. |
-| Converter re-run with `--replace` does nothing (0 files) | Expected: `--skip-done` skips every row already marked `converted`. Use `swap_originals.py` for already-converted files; do not add `--no-skip-done` unless you intend to re-encode everything. |
+| Converter re-run with `--replace` does nothing (0 files) | Expected: `--skip-done` skips every row already marked `converted`. Use `swap-originals` for already-converted files; do not add `--no-skip-done` unless you intend to re-encode everything. |
 | `--replace --purge-backup` alone purges nothing | Same trap: with no files selected, no backup is purged. Purge happens inside a real replace run, or delete `.bak` files by hand after verifying. |
 | Report and DB disagree about a file | They are separate records. Report-mode runs update the report checklist; DB-mode runs update the DB. A report-mode conversion does not update `state.db`, and a fresh scan to a new filename drops the checklist (blank `Conversion_Status` does **not** mean unconverted). Check the actual output file before re-running in the other mode. |
 | `database is locked` from the dashboard | The converter holds the SQLite write lock. The dashboard now waits 30 s and returns 503 instead of a 500; refresh after the encode finishes. Do not run two converters against one DB — the pipeline lockfile exists for this. |

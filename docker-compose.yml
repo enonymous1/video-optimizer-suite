@@ -15,7 +15,7 @@ services:
     # devices:
     #   - /dev/dri:/dev/dri
     command: >
-      python pipeline.py --scan-dir /mnt/media --db /app/state/state.db
+      video-pipeline --scan-dir /mnt/media --db /app/state/state.db
       --encoder x265 --jobs 1
   # Optional dashboard (read-only queue view). It has NO auth, so
   # the port mapping below binds loopback only on purpose: reach
@@ -28,5 +28,5 @@ services:
   #   ports:
   #     - "127.0.0.1:5000:5000"
   #   command: >
-  #     python dashboard.py --db /app/state/state.db
+  #     video-dashboard --db /app/state/state.db
   #     --host 0.0.0.0 --port 5000

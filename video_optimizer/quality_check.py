@@ -65,9 +65,9 @@ Optional perceptual sample (--sample-quality):
   treated as a failure -- exit code alone is not trusted.
 
 CLI:
-    python quality_check.py original.mkv converted.mkv
-    python quality_check.py original.mkv converted.mkv --sample-quality --json
-    python quality_check.py original.mkv converted.mkv --encode-log encode.log
+    video-quality-check original.mkv converted.mkv
+    video-quality-check original.mkv converted.mkv --sample-quality --json
+    video-quality-check original.mkv converted.mkv --encode-log encode.log
 Exit code: 0 = pass, 1 = fail, 2 = usage / tool error.
 """
 from __future__ import annotations

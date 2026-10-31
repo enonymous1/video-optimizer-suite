@@ -24,8 +24,8 @@ Resilience
 
 Usage
 -----
-    python video_optimizer_scan.py "D:\\Media\\Movies" --threads 8
-    python video_optimizer_scan.py /mnt/nas/videos --out-dir reports --min-size-mb 50
+    video-scan "D:\\Media\\Movies" --threads 8
+    video-scan /mnt/nas/videos --out-dir reports --min-size-mb 50
 
 Dependencies: none (stdlib only). Optional: tqdm for a progress bar.
 ffprobe (part of ffmpeg) must be installed and on PATH.
@@ -51,7 +51,7 @@ from pathlib import Path
 # The scanner runs from its own folder, where common.py sits next to
 # it; keep a plain-print fallback so a lone copied scanner still runs.
 try:
-    from common import log_msg as _log
+    from .common import log_msg as _log
 except ImportError:  # pragma: no cover - lone scanner copy, no common.py
     _print_lock = threading.Lock()
 

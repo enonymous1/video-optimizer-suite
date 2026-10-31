@@ -44,7 +44,7 @@ Picking the clip matters more than anything else in this tool:
     for one full-file test, not to batch all 19 files blind.
 
 Example (the Goblins vs Gnomes file):
-  python crf_test.py --input "Blood Bowl. Goblins vs Gnomes.mkv" \\
+  crf-test --input "Blood Bowl. Goblins vs Gnomes.mkv" \\
       --out-dir crf-test-goblins --start 600 --duration 90 \\
       --crfs 20 22 24
   # then open crf-test-goblins/compare_crf22/side_by_side/ and look
@@ -194,7 +194,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Reference clip: {ref_size / 1_000_000:.1f} MB, "
           f"{ref_mbps:.2f} Mbps, {actual_clip:.1f}s")
 
-    stills = Path(__file__).resolve().parent / "stills.py"
+    # The stills step runs the package module (python -m), not a
+    # sibling file: after the package migration there is no
+    # stills.py next to this module, and a plain-script run of it
+    # would fail on its relative import anyway.
+    try:
+        import video_optimizer.stills  # noqa: F401
+        _has_stills = True
+    except ImportError:
+        _has_stills = False
     rows: list[dict] = []
     failed = 0
     for crf in args.crfs:
@@ -225,11 +233,11 @@ def main(argv: list[str] | None = None) -> int:
               f"vs clip, {mbps:.2f} Mbps, {elapsed:.0f}s; "
               f"rough full-file projection: {projected_gb:.2f} GB "
               f"(from {full_size / 1_000_000_000:.2f} GB)")
-        if not args.no_stills and stills.is_file():
+        if not args.no_stills and _has_stills:
             compare_dir = args.out_dir / f"compare_crf{crf}"
             print(f"  Stills compare -> {compare_dir}/side_by_side/")
             proc = subprocess.run(
-                [sys.executable, str(stills), "compare",
+                [sys.executable, "-m", "video_optimizer.stills", "compare",
                  "--original", str(ref), "--converted", str(out),
                  "--out-dir", str(compare_dir),
                  "--count", str(args.stills_count),
@@ -241,13 +249,13 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"  [warn] stills compare failed for CRF {crf}; "
                       f"run it manually:\n"
-                      f"    python stills.py compare --original {ref} "
+                      f"    video-stills compare --original {ref} "
                       f"--converted {out} --out-dir {compare_dir} "
                       f"--count {args.stills_count}", file=sys.stderr)
         elif not args.no_stills:
-            print(f"  [warn] stills.py not found next to crf_test.py; "
+            print(f"  [warn] video_optimizer.stills is not importable; "
                   f"compare manually with:\n"
-                  f"    python stills.py compare --original {ref} "
+                  f"    video-stills compare --original {ref} "
                   f"--converted {out} --out-dir "
                   f"{args.out_dir}/compare_crf{crf} --count {args.stills_count}",
                   file=sys.stderr)

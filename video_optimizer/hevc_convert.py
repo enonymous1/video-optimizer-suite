@@ -75,13 +75,13 @@ DVD jobs (dvd_ingest.py, see --dvd-mode):
 
 Examples:
     # Preview what High Priority would do (nothing encoded):
-    python hevc_convert.py --db state.db --dry-run
+    hevc-convert --db state.db --dry-run
     # Convert High Priority to a separate tree, originals untouched:
-    python hevc_convert.py --db state.db --encoder nvenc --preset p7 --jobs 2
+    hevc-convert --db state.db --encoder nvenc --preset p7 --jobs 2
     # Same, but verified encodes replace originals (backup kept):
-    python hevc_convert.py --db state.db --encoder x265 --replace --yes
+    hevc-convert --db state.db --encoder x265 --replace --yes
     # JSON-report mode, no DB (v1-compatible input):
-    python hevc_convert.py --report reports/video_optimization_report.json \\
+    hevc-convert --report reports/video_optimization_report.json \\
         --scan-root /mnt/media --out-dir /mnt/converted --priority high
 """
 from __future__ import annotations
@@ -101,22 +101,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from common import atomic_write_json as _atomic_write_json  # noqa: E402
-from common import fmt_bytes as _fmt_bytes  # noqa: E402
-from common import fmt_seconds as _fmt_seconds  # noqa: E402
-from common import log_msg as _log  # noqa: E402
-from dvd_ingest import write_concat_list  # noqa: E402
-from encoders import (  # noqa: E402
+from .common import atomic_write_json as _atomic_write_json  # noqa: E402
+from .common import fmt_bytes as _fmt_bytes  # noqa: E402
+from .common import fmt_seconds as _fmt_seconds  # noqa: E402
+from .common import log_msg as _log  # noqa: E402
+from .dvd_ingest import write_concat_list  # noqa: E402
+from .encoders import (  # noqa: E402
     NVENC_PRESETS, QSV_PRESETS, X265_PRESETS, encoder_available,
     quality_label, video_args,
 )
-from quality_check import probe as probe_media  # noqa: E402
-from quality_check import verify as verify_files  # noqa: E402
-from quality_check import verify_reference  # noqa: E402
-from resources import recommend as recommend_resources  # noqa: E402
-from state_manager import StateDB, load_report_file  # noqa: E402
+from .quality_check import probe as probe_media  # noqa: E402
+from .quality_check import verify as verify_files  # noqa: E402
+from .quality_check import verify_reference  # noqa: E402
+from .resources import recommend as recommend_resources  # noqa: E402
+from .state_manager import StateDB, load_report_file  # noqa: E402
 
 __version__ = "2.2.0"
 

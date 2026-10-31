@@ -11,7 +11,7 @@ works with JavaScript disabled (the whole page is server-rendered).
 
 Run:
     pip install flask
-    python dashboard.py --db state.db --port 5000
+    video-dashboard --db state.db --port 5000
     # then open http://localhost:5000  (bind 0.0.0.0 in Docker)
 
 Routes:
@@ -259,7 +259,7 @@ def main() -> int:
     args = ap.parse_args()
     if not args.db.is_file():
         print(f"NOTE: state DB not found yet: {args.db} "
-              f"(run pipeline.py or state_manager.py import first; "
+              f"(run video-pipeline or video-state import first; "
               f"the dashboard will show empty tables until then.)")
     app = create_app(args.db)
     app.run(host=args.host, port=args.port)

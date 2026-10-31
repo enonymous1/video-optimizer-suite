@@ -35,6 +35,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os
+_ROOT = Path(__file__).resolve().parent.parent
+os.environ["PYTHONPATH"] = (str(_ROOT) + os.pathsep
+                              + os.environ.get("PYTHONPATH", ""))
 
 
 def _run(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
@@ -100,7 +104,7 @@ def main() -> int:
         if not cond:
             failures.append(name)
 
-    script = Path(__file__).resolve().parent.parent / "swap_originals.py"
+    SWAP_CMD = [sys.executable, "-m", "video_optimizer.swap_originals"]
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -122,18 +126,18 @@ def main() -> int:
         log_a.write_text(json.dumps([_log_entry(src_a, conv_a)]), encoding="utf-8")
 
         # Dry-run and no---yes change nothing.
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--dry-run"], root, check=False)
         check("dry-run exits 0 and changes nothing",
               r.returncode == 0 and _codec(src_a) == "h264"
               and not (media / "Alpha.mkv.bak").exists())
-        r = _run([sys.executable, str(script), "--report", str(report_a)],
+        r = _run(SWAP_CMD + ["--report", str(report_a)],
                  root, check=False)
         check("no --yes exits 2 and changes nothing",
               r.returncode == 2 and _codec(src_a) == "h264")
 
         # Real swap, one file.
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--log", str(log_a), "--yes"], root, check=False)
         check("swap exits 0", r.returncode == 0, r.stdout + r.stderr)
         check("original path is now HEVC", _codec(src_a) == "hevc")
@@ -163,7 +167,7 @@ def main() -> int:
         report_b = _write_report(root, [_row(src_b, conv_b1)], "report_b.json")
         log_b = root / "conversion_log_b.json"
         log_b.write_text(json.dumps([_log_entry(src_b, conv_b2)]), encoding="utf-8")
-        r = _run([sys.executable, str(script), "--report", str(report_b),
+        r = _run(SWAP_CMD + ["--report", str(report_b),
                   "--log", str(log_b), "--yes"], root, check=False)
         check("conflicting report/log is skipped, original untouched",
               _codec(src_b) == "h264" and not (media / "Bravo.mkv.bak").exists(),
@@ -182,7 +186,7 @@ def main() -> int:
         report_c = _write_report(root, [_row(src_c, good_c)], "report_c.json")
         log_c = root / "conversion_log_c.json"
         log_c.write_text(json.dumps([_log_entry(src_c, good_c)]), encoding="utf-8")
-        r = _run([sys.executable, str(script), "--report", str(report_c),
+        r = _run(SWAP_CMD + ["--report", str(report_c),
                   "--log", str(log_c), "--yes"], root, check=False)
         check("report-pointed _2 file swapped, stale file untouched",
               r.returncode == 0 and _codec(src_c) == "hevc"
@@ -199,11 +203,11 @@ def main() -> int:
         report_d = _write_report(root, [_row(src_d, conv_d)], "report_d.json")
         log_d = root / "conversion_log_d.json"
         log_d.write_text(json.dumps([_log_entry(src_d, conv_d)]), encoding="utf-8")
-        r = _run([sys.executable, str(script), "--report", str(report_d),
+        r = _run(SWAP_CMD + ["--report", str(report_d),
                   "--log", str(log_d), "--yes"], root, check=False)
         check("larger encode skipped by default",
               _codec(src_d) == "h264" and not (media / "Delta.mkv.bak").exists())
-        r = _run([sys.executable, str(script), "--report", str(report_d),
+        r = _run(SWAP_CMD + ["--report", str(report_d),
                   "--log", str(log_d), "--yes", "--allow-larger",
                   "--verify-mode", "fast"], root, check=False)
         check("larger encode swaps with --allow-larger (fast verify)",
@@ -223,7 +227,7 @@ def main() -> int:
         report_e = _write_report(root, [_row(src_e, short_e)], "report_e.json")
         # No log for Echo: size cross-check is report-only (None), so
         # the verify gate itself must reject the 2s file.
-        r = _run([sys.executable, str(script), "--report", str(report_e),
+        r = _run(SWAP_CMD + ["--report", str(report_e),
                   "--yes"], root, check=False)
         check("duration-mismatched encode fails gate, no backup made",
               _codec(src_e) == "h264" and not (media / "Echo.mkv.bak").exists(),
@@ -239,7 +243,7 @@ def main() -> int:
         report_f = _write_report(root, [_row(src_f, conv_f)], "report_f.json")
         log_f = root / "conversion_log_f.json"
         log_f.write_text(json.dumps([_log_entry(src_f, conv_f)]), encoding="utf-8")
-        r = _run([sys.executable, str(script), "--report", str(report_f),
+        r = _run(SWAP_CMD + ["--report", str(report_f),
                   "--log", str(log_f), "--yes"], root, check=False)
         check("pre-existing .bak untouched, numbered backup used",
               sentinel.read_bytes() == b"pre-existing backup - do not overwrite"
@@ -255,7 +259,7 @@ def main() -> int:
         entry_g = _log_entry(src_g, conv_g)
         entry_g["New_Bytes"] = conv_g.stat().st_size + 12345  # stale log
         log_g.write_text(json.dumps([entry_g]), encoding="utf-8")
-        r = _run([sys.executable, str(script), "--report", str(report_g),
+        r = _run(SWAP_CMD + ["--report", str(report_g),
                   "--log", str(log_g), "--yes"], root, check=False)
         check("size mismatch vs log is not swapped",
               _codec(src_g) == "h264" and not (media / "Golf.mkv.bak").exists())
@@ -269,7 +273,7 @@ def main() -> int:
             "Source_Kind": "dvd",
             "Source_Files": [str(media / "Hotel" / "VIDEO_TS" / "VTS_01_1.VOB")],
         }], "report_h.json")
-        r = _run([sys.executable, str(script), "--report", str(report_h),
+        r = _run(SWAP_CMD + ["--report", str(report_h),
                   "--yes"], root, check=False)
         check("DVD job skipped, nothing created for it",
               r.returncode == 0 and "DVD job" in r.stdout
@@ -283,7 +287,7 @@ def main() -> int:
         src_a.unlink()
         check("interrupted-swap fixture: original missing, backup present",
               not src_a.exists() and backup_a.is_file())
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--recover", "--yes"], root, check=False)
         check("recover restores original from backup, removes staging",
               src_a.is_file() and _codec(src_a) == "h264"
@@ -297,21 +301,21 @@ def main() -> int:
         backup_a.write_bytes(orig_a_bytes)
         staging_i.write_bytes(b"orphan staging")
         log_before = (root / "swap_log.json").read_bytes()
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--recover", "--dry-run"], root, check=False)
         check("recover dry-run changes nothing and exits 0",
               r.returncode == 0 and not src_a.exists()
               and staging_i.is_file()
               and (root / "swap_log.json").read_bytes() == log_before,
               r.stdout + r.stderr)
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--recover"], root, check=False)
         check("recover without --yes changes nothing and exits 2",
               r.returncode == 2 and not src_a.exists()
               and staging_i.is_file()
               and (root / "swap_log.json").read_bytes() == log_before,
               r.stdout + r.stderr)
-        r = _run([sys.executable, str(script), "--report", str(report_a),
+        r = _run(SWAP_CMD + ["--report", str(report_a),
                   "--recover", "--yes"], root, check=False)
         check("recover --yes restores after the plan runs",
               r.returncode == 0 and src_a.is_file()

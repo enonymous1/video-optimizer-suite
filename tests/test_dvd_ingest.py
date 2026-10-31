@@ -36,12 +36,15 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+os.environ["PYTHONPATH"] = (str(_ROOT) + os.pathsep
+                              + os.environ.get("PYTHONPATH", ""))
 
-import dvd_ingest  # noqa: E402
-import hevc_convert  # noqa: E402
-from quality_check import probe as probe_media  # noqa: E402
-from quality_check import verify_reference  # noqa: E402
-from state_manager import StateDB  # noqa: E402
+from video_optimizer import dvd_ingest  # noqa: E402
+from video_optimizer import hevc_convert  # noqa: E402
+from video_optimizer.quality_check import probe as probe_media  # noqa: E402
+from video_optimizer.quality_check import verify_reference  # noqa: E402
+from video_optimizer.state_manager import StateDB  # noqa: E402
 
 FAILURES: list[str] = []
 
@@ -250,7 +253,7 @@ def _e2e_checks(root: Path) -> None:
     # 1. CLI scan produces one job.
     reports = root / "reports"
     proc = subprocess.run(
-        [sys.executable, str(here / "dvd_ingest.py"), "scan", str(root),
+        [sys.executable, "-m", "video_optimizer.dvd_ingest", "scan", str(root),
          "--out-dir", str(reports)],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("dvd_ingest scan exits 0", proc.returncode == 0, proc.stderr[-300:])
@@ -274,7 +277,7 @@ def _e2e_checks(root: Path) -> None:
     db.close()
     out_dir = work / "converted"
     proc = subprocess.run(
-        [sys.executable, str(here / "hevc_convert.py"),
+        [sys.executable, "-m", "video_optimizer.hevc_convert",
          "--db", str(db_path), "--scan-root", str(root),
          "--out-dir", str(out_dir), "--encoder", "x265", "--crf", "28",
          "--preset", "ultrafast", "--priority", "all", "--yes"],
@@ -335,7 +338,7 @@ def _e2e_checks(root: Path) -> None:
     # 4. Menu previews from the real VOBs.
     previews = root / "previews"
     proc = subprocess.run(
-        [sys.executable, str(here / "dvd_ingest.py"), "previews",
+        [sys.executable, "-m", "video_optimizer.dvd_ingest", "previews",
          "-i", str(video_ts), "-o", str(previews), "--seeks", "1"],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
     jpgs = list(previews.glob("*.jpg")) if previews.is_dir() else []
@@ -399,7 +402,7 @@ def _e2e_checks(root: Path) -> None:
 
     # 7. Pipeline wiring: --dvd-dir dry-run imports the DVD job.
     proc = subprocess.run(
-        [sys.executable, str(here / "pipeline.py"),
+        [sys.executable, "-m", "video_optimizer.pipeline",
          "--scan-dir", str(root), "--dvd-dir", str(root),
          "--db", str(work / "state4.db"),
          "--reports-dir", str(work / "reports4"),

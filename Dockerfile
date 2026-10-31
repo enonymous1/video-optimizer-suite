@@ -3,7 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . /app/
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir .
 # Media + state are mounted at runtime; nothing library-specific is baked in.
 VOLUME ["/mnt/media", "/app/state"]
-CMD ["python", "pipeline.py", "--help"]
+CMD ["video-pipeline", "--help"]

@@ -34,9 +34,9 @@ single file mtime to compare), which is documented in
 
 CLI:
 
-    python dvd_ingest.py scan "D:\\Media\\DVDs" --out-dir reports
-    python dvd_ingest.py info "D:\\Media\\Movie\\VIDEO_TS"
-    python dvd_ingest.py previews -i "D:\\Media\\Movie\\VIDEO_TS" -o menu_previews
+    dvd-ingest scan "D:\\Media\\DVDs" --out-dir reports
+    dvd-ingest info "D:\\Media\\Movie\\VIDEO_TS"
+    dvd-ingest previews -i "D:\\Media\\Movie\\VIDEO_TS" -o menu_previews
 
 Dependencies: none (stdlib only). ffprobe must be on PATH for
 ``scan``; ffmpeg must be on PATH for ``previews``.
@@ -524,7 +524,7 @@ def build_vts_row(video_ts_dir: str | Path, vts_num: str) -> dict:
     # is unavailable, fall back to an honest unranked row rather than
     # inventing an estimate.
     try:
-        from video_optimizer_scan import (  # noqa: E402
+        from .video_optimizer_scan import (  # noqa: E402
             classify_candidate, estimate_hevc_savings)
         candidate, reason = classify_candidate(row)
         row["Optimization_Candidate"] = candidate
@@ -680,7 +680,7 @@ def _write_report(rows: list[dict], out_dir: Path, stem: str) -> tuple[Path, Pat
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
-        from video_optimizer_scan import write_reports  # noqa: E402
+        from .video_optimizer_scan import write_reports  # noqa: E402
         return write_reports(rows, out_dir, stem)
     except ImportError:
         json_path = out_dir / f"{stem}.json"

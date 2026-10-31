@@ -420,7 +420,7 @@ def add_output_args(p: argparse.ArgumentParser) -> None:
 def _load_report_inputs(report: Path, args: argparse.Namespace) -> list[Path]:
     """Load scanner-report paths, filtered like the converter's selection."""
     try:
-        from state_manager import load_report_file
+        from .state_manager import load_report_file
         rows = load_report_file(report)
     except Exception:  # noqa: BLE001 - fall back to plain JSON
         with open(report, encoding="utf-8") as fh:

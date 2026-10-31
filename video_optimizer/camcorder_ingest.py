@@ -44,7 +44,7 @@ like any flat file (opt-in, backup kept).
 
 CLI:
 
-    python camcorder_ingest.py scan "D:\\\\Camcorder" --out-dir reports
+    camcorder-ingest scan "D:\\\\Camcorder" --out-dir reports
 
 Dependencies: none (stdlib only). ffprobe must be on PATH for
 ``scan``.
@@ -448,7 +448,7 @@ def build_row(path: str | Path) -> dict:
     }
 
     try:
-        from video_optimizer_scan import (  # noqa: E402
+        from .video_optimizer_scan import (  # noqa: E402
             classify_candidate, compute_bloat_flags, estimate_hevc_savings)
         candidate, reason = classify_candidate(row)
         row["Optimization_Candidate"] = candidate
@@ -483,7 +483,7 @@ def _write_report(rows: list[dict], out_dir: Path, stem: str) -> tuple[Path, Pat
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
-        from video_optimizer_scan import write_reports  # noqa: E402
+        from .video_optimizer_scan import write_reports  # noqa: E402
         return write_reports(rows, out_dir, stem)
     except ImportError:
         json_path = out_dir / f"{stem}.json"

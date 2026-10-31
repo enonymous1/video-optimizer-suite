@@ -1,6 +1,48 @@
 # Changelog
 
-## Unreleased — staff review, 2026-10-31 (see REVIEW.md)
+## v2.4.0 — 2026-10-31: package migration
+
+The flat root scripts are gone. All code lives in the
+`video_optimizer/` package, installable with
+`pip install -e .`, which provides the console scripts
+`video-scan`, `video-state`, `hevc-convert`,
+`swap-originals`, `video-pipeline`, `video-dashboard`,
+`video-stills`, `crf-test`, `dvd-ingest`, `camcorder-ingest`,
+and `video-quality-check`. Without an install, every tool
+still runs from the suite folder as
+`python -m video_optimizer.<module>`. Module filenames are
+unchanged inside the package, and no flags, defaults, or
+behaviour changed in the migration — only imports, entry
+points, and the commands in the README, Dockerfile, compose
+file, and CI.
+
+Cross-module subprocesses (pipeline → scanner/DVD/camcorder,
+CRF test → stills) now invoke `python -m
+video_optimizer.<module>` with the package root prepended to
+`PYTHONPATH`, instead of running a sibling `.py` file; the
+pipeline's `--analyzer` is now an override file path only
+(the old sibling `video-meta-scan/` fallback is gone — the
+bundled module is importable whenever the driver runs).
+The old `sys.path.insert` hacks are deleted; modules import
+each other with relative imports.
+
+**Migrating an existing checkout (read before copying):**
+robocopying the new tree over an old working folder does NOT
+delete the old root `.py` files, so you would end up running
+stale root scripts next to the new package. After copying,
+delete exactly these from the old folder (and nothing else):
+`video_optimizer_scan.py`, `state_manager.py`,
+`hevc_convert.py`, `swap_originals.py`, `quality_check.py`,
+`encoders.py`, `resources.py`, `common.py`, `pipeline.py`,
+`dashboard.py`, `stills.py`, `crf_test.py`, `dvd_ingest.py`,
+`camcorder_ingest.py`. Never use `robocopy /MIR` for this —
+it would also delete `reports/`, `converted/`, and
+`state.db`. Then `pip install -e .` (or use the `python -m`
+forms) and run `python tests/test_smoke.py` to confirm the
+new layout before any real run. A fresh extraction needs no
+migration step.
+
+### Staff review fixes, also in v2.4.0 (see REVIEW.md)
 
 Safety and correctness fixes, all backwards-compatible in CLI
 behaviour except where the old behaviour was the bug:

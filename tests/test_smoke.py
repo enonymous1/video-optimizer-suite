@@ -27,10 +27,14 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os
+_ROOT = Path(__file__).resolve().parent.parent
+os.environ["PYTHONPATH"] = (str(_ROOT) + os.pathsep
+                              + os.environ.get("PYTHONPATH", ""))
 
-from quality_check import verify  # noqa: E402
-from state_manager import StateDB  # noqa: E402
-import hevc_convert  # noqa: E402
+from video_optimizer.quality_check import verify  # noqa: E402
+from video_optimizer.state_manager import StateDB  # noqa: E402
+from video_optimizer import hevc_convert  # noqa: E402
 
 
 def _make_source(path: Path) -> None:

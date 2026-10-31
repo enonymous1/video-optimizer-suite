@@ -29,6 +29,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os
+_ROOT = Path(__file__).resolve().parent.parent
+os.environ["PYTHONPATH"] = (str(_ROOT) + os.pathsep
+                              + os.environ.get("PYTHONPATH", ""))
 
 try:
     import flask  # noqa: F401
@@ -36,7 +40,7 @@ except ImportError:
     print("SKIP: Flask not installed (dashboard tests need it).")
     raise SystemExit(0)
 
-from dashboard import create_app  # noqa: E402
+from video_optimizer.dashboard import create_app  # noqa: E402
 
 
 def main() -> int:

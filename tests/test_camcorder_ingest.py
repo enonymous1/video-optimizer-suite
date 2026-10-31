@@ -37,10 +37,13 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+os.environ["PYTHONPATH"] = (str(_ROOT) + os.pathsep
+                              + os.environ.get("PYTHONPATH", ""))
 
-import camcorder_ingest  # noqa: E402
-import hevc_convert  # noqa: E402
-from state_manager import StateDB  # noqa: E402
+from video_optimizer import camcorder_ingest  # noqa: E402
+from video_optimizer import hevc_convert  # noqa: E402
+from video_optimizer.state_manager import StateDB  # noqa: E402
 
 FAILURES: list[str] = []
 
@@ -336,7 +339,7 @@ def _e2e_checks(root: Path) -> None:
     work = root / "pipeline"
     work.mkdir()
     proc = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve().parent.parent / "pipeline.py"),
+        [sys.executable, "-m", "video_optimizer.pipeline",
          "--scan-dir", str(root), "--camcorder-dir", str(root),
          "--db", str(work / "state.db"),
          "--reports-dir", str(work / "reports"),

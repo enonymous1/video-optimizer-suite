@@ -1,3 +1,0 @@
-# Core pipeline: stdlib only. Install only what you use.
-flask>=3.0  # dashboard.py only
-tqdm>=4.65  # optional progress bars (converter + scanner)

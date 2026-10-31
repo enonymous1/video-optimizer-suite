@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-optimizer"
+version = "2.4.0"
+description = "Inspect, convert, verify, and swap a Plex/Jellyfin library to HEVC — without ever touching an original until you say so."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+# The core tools are stdlib-only; Flask serves the dashboard and tqdm
+# draws progress bars (the code runs without tqdm). They are declared
+# here so `pip install -e .` gives you the console scripts AND their
+# runtime needs in one step; `python -m video_optimizer.<module>`
+# from the suite folder still works without an install.
+dependencies = [
+    "flask>=3.0",
+    "tqdm>=4.65",
+]
+
+[project.scripts]
+video-scan = "video_optimizer.video_optimizer_scan:main"
+video-state = "video_optimizer.state_manager:main"
+hevc-convert = "video_optimizer.hevc_convert:main"
+swap-originals = "video_optimizer.swap_originals:main"
+video-pipeline = "video_optimizer.pipeline:main"
+video-dashboard = "video_optimizer.dashboard:main"
+video-stills = "video_optimizer.stills:main"
+crf-test = "video_optimizer.crf_test:main"
+dvd-ingest = "video_optimizer.dvd_ingest:main"
+camcorder-ingest = "video_optimizer.camcorder_ingest:main"
+video-quality-check = "video_optimizer.quality_check:main"
+
+[tool.setuptools.packages.find]
+include = ["video_optimizer*"]

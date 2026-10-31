@@ -76,13 +76,13 @@ codec; nothing needs re-matching.
 
 Usage:
     # Preview (changes nothing):
-    python swap_originals.py --report reports/video_optimization_report.json --dry-run
+    swap-originals --report reports/video_optimization_report.json --dry-run
     # Swap one file, then check it in your player:
-    python swap_originals.py --report reports/video_optimization_report.json --only "Goblins" --yes
+    swap-originals --report reports/video_optimization_report.json --only "Goblins" --yes
     # Swap the rest:
-    python swap_originals.py --report reports/video_optimization_report.json --yes
+    swap-originals --report reports/video_optimization_report.json --yes
     # Backups to another folder (must have room for all originals):
-    python swap_originals.py --report reports/video_optimization_report.json --backup-dir "F:\\backups" --yes
+    swap-originals --report reports/video_optimization_report.json --backup-dir "F:\\backups" --yes
 
 Exit codes: 0 = every selected file swapped or cleanly skipped,
 1 = at least one file failed verification/swap (others may have
@@ -106,17 +106,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from common import atomic_write_json as _atomic_write_json  # noqa: E402
-from common import fmt_bytes as _fmt_bytes  # noqa: E402
-from common import log_msg as _log  # noqa: E402
-from quality_check import DURATION_TOL_FRAC as _DURATION_TOL_FRAC  # noqa: E402
-from quality_check import DURATION_TOL_S as _DURATION_TOL_S  # noqa: E402
-from quality_check import MIN_SIZE_FRAC as _MIN_SIZE_FRAC  # noqa: E402
-from quality_check import probe as probe_media  # noqa: E402
-from quality_check import verify as verify_files  # noqa: E402
-from state_manager import load_report_file  # noqa: E402
+from .common import atomic_write_json as _atomic_write_json  # noqa: E402
+from .common import fmt_bytes as _fmt_bytes  # noqa: E402
+from .common import log_msg as _log  # noqa: E402
+from .quality_check import DURATION_TOL_FRAC as _DURATION_TOL_FRAC  # noqa: E402
+from .quality_check import DURATION_TOL_S as _DURATION_TOL_S  # noqa: E402
+from .quality_check import MIN_SIZE_FRAC as _MIN_SIZE_FRAC  # noqa: E402
+from .quality_check import probe as probe_media  # noqa: E402
+from .quality_check import verify as verify_files  # noqa: E402
+from .state_manager import load_report_file  # noqa: E402
 
 __version__ = "1.0.0"
 

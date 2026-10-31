@@ -7,7 +7,7 @@ in order, and stops at the first stage that fails. It exists so a
 headless Unraid/Docker run is one cron line instead of four commands
 that can be run in the wrong order.
 
-    python pipeline.py --scan-dir /mnt/media --db state.db --encoder nvenc
+    video-pipeline --scan-dir /mnt/media --db state.db --encoder nvenc
 
 Stages:
   1. Inspect -- runs the scanner bundled in this same folder
@@ -58,10 +58,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from state_manager import StateDB, load_report_file  # noqa: E402
-import hevc_convert  # noqa: E402
+from .state_manager import StateDB, load_report_file  # noqa: E402
+from . import hevc_convert  # noqa: E402
 
 
 def _acquire_lock(lock_path: Path) -> bool:
@@ -81,29 +79,52 @@ def _acquire_lock(lock_path: Path) -> bool:
     return True
 
 
-def run_scan(analyzer: Path, scan_dir: Path, out_dir: Path,
-             threads: int, min_size_mb: float) -> Path:
-    """Run the bundled scanner as a subprocess; return the JSON report.
+def _module_env() -> dict:
+    """Environment for child ``python -m video_optimizer.*`` calls.
 
-    CLI compatibility: an older scanner copy takes the scan directory
-    as a positional argument, while the bundled copy takes --dir (and
-    prompts if it is missing). Both are always supplied here, so the
-    scanner never blocks on stdin; the form is chosen from the
-    scanner's own --help output.
+    The package root (the suite folder) is prepended to PYTHONPATH
+    so a child module resolves even when the driver was invoked
+    from another working directory without an install. Without
+    this, ``python -m`` in a child inherits only the caller's cwd
+    and site-packages, and a non-installed run from elsewhere
+    fails to find the package.
+    """
+    env = dict(os.environ)
+    root = str(Path(__file__).resolve().parent.parent)
+    prev = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = root + (os.pathsep + prev if prev else "")
+    return env
+
+
+def run_scan(analyzer: Path | None, scan_dir: Path, out_dir: Path,
+             threads: int, min_size_mb: float) -> Path:
+    """Run the scanner as a subprocess; return the JSON report.
+
+    ``analyzer`` is None for the bundled package module
+    (``python -m video_optimizer.video_optimizer_scan``) or a Path
+    to an external scanner file (the ``--analyzer`` override).
+    CLI compatibility: an older scanner copy takes the scan
+    directory as a positional argument, while the bundled copy
+    takes --dir (and prompts if it is missing). Both are always
+    supplied here, so the scanner never blocks on stdin; the form
+    is chosen from the scanner's own --help output.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = ([sys.executable, "-m", "video_optimizer.video_optimizer_scan"]
+              if analyzer is None else [sys.executable, str(analyzer)])
     help_proc = subprocess.run(
-        [sys.executable, str(analyzer), "--help"],
+        prefix + ["--help"], env=_module_env(),
         capture_output=True, text=True, encoding="utf-8", errors="replace")
     help_text = help_proc.stdout + help_proc.stderr
     if "--dir" in help_text:
         dir_args = ["--dir", str(scan_dir)]
     else:
         dir_args = [str(scan_dir)]
-    cmd = [sys.executable, str(analyzer)] + dir_args + [
+    cmd = prefix + dir_args + [
            "--threads", str(threads), "--out-dir", str(out_dir),
            "--min-size-mb", str(min_size_mb)]
-    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace")
+    proc = subprocess.run(cmd, env=_module_env(), text=True,
+                          encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         raise RuntimeError(f"scanner exited rc={proc.returncode}")
     report = out_dir / "video_optimization_report.json"
@@ -113,51 +134,48 @@ def run_scan(analyzer: Path, scan_dir: Path, out_dir: Path,
 
 
 def run_dvd_scan(dvd_dir: Path, out_dir: Path) -> Path | None:
-    """Run dvd_ingest.py scan as a subprocess; return its JSON report.
+    """Run the dvd_ingest module's scan as a subprocess; return its JSON report.
 
     Returns None when no VIDEO_TS directory is found (dvd_ingest exits
     2 with no report written) -- that is a normal empty result, not a
     failure. Any other non-zero exit raises.
     """
-    here = Path(__file__).resolve().parent / "dvd_ingest.py"
-    if not here.is_file():
-        raise RuntimeError("dvd_ingest.py not found next to pipeline.py")
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(here), "scan", str(dvd_dir),
-           "--out-dir", str(out_dir), "--stem", "dvd_report"]
-    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace")
+    cmd = [sys.executable, "-m", "video_optimizer.dvd_ingest", "scan",
+           str(dvd_dir), "--out-dir", str(out_dir), "--stem", "dvd_report"]
+    proc = subprocess.run(cmd, env=_module_env(), text=True,
+                          encoding="utf-8", errors="replace")
     report = out_dir / "dvd_report.json"
     if proc.returncode == 2 and not report.is_file():
         return None
     if proc.returncode != 0:
-        raise RuntimeError(f"dvd_ingest.py scan exited rc={proc.returncode}")
+        raise RuntimeError(f"dvd_ingest scan exited rc={proc.returncode}")
     if not report.is_file():
-        raise RuntimeError(f"dvd_ingest.py did not produce {report}")
+        raise RuntimeError(f"dvd_ingest did not produce {report}")
     return report
 
 
 def run_camcorder_scan(camcorder_dir: Path, out_dir: Path) -> Path | None:
-    """Run camcorder_ingest.py scan as a subprocess; return its report.
+    """Run the camcorder_ingest module's scan as a subprocess; return its report.
 
     Returns None when no camcorder file is found (camcorder_ingest
     exits 2 with no report written) -- a normal empty result, not a
     failure. Any other non-zero exit raises.
     """
-    here = Path(__file__).resolve().parent / "camcorder_ingest.py"
-    if not here.is_file():
-        raise RuntimeError("camcorder_ingest.py not found next to pipeline.py")
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(here), "scan", str(camcorder_dir),
-           "--out-dir", str(out_dir), "--stem", "camcorder_report"]
-    proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace")
+    cmd = [sys.executable, "-m", "video_optimizer.camcorder_ingest", "scan",
+           str(camcorder_dir), "--out-dir", str(out_dir),
+           "--stem", "camcorder_report"]
+    proc = subprocess.run(cmd, env=_module_env(), text=True,
+                          encoding="utf-8", errors="replace")
     report = out_dir / "camcorder_report.json"
     if proc.returncode == 2 and not report.is_file():
         return None
     if proc.returncode != 0:
         raise RuntimeError(
-            f"camcorder_ingest.py scan exited rc={proc.returncode}")
+            f"camcorder_ingest scan exited rc={proc.returncode}")
     if not report.is_file():
-        raise RuntimeError("camcorder_ingest.py did not produce {report}")
+        raise RuntimeError("camcorder_ingest did not produce {report}")
     return report
 
 
@@ -186,8 +204,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--db", type=Path, default=Path("state.db"))
     ap.add_argument("--reports-dir", type=Path, default=Path("reports"))
     ap.add_argument("--analyzer", type=Path, default=None,
-                    help="Scanner path, only if you want to override the "
-                         "bundled video_optimizer_scan.py in this folder")
+                    help="Scanner file path, only if you want to override "
+                         "the bundled video_optimizer.video_optimizer_scan "
+                         "module")
     ap.add_argument("--no-scan", action="store_true",
                     help="Skip stage 1; use the existing report in --reports-dir")
     ap.add_argument("--threads", type=int, default=8)
@@ -228,21 +247,16 @@ def main(argv: list[str] | None = None) -> int:
                       file=sys.stderr)
                 return 2
         else:
+            # Default is the bundled package module (run_scan passes
+            # analyzer=None for the -m form). The old sibling-folder
+            # fallback is gone with the flat layout: if this driver
+            # runs, the package is importable, so the module is too.
+            # Only an explicit --analyzer override is a file path,
+            # and it must exist.
             analyzer = args.analyzer
-            if analyzer is None:
-                # Self-contained first: the scanner in this same folder.
-                # The old sibling folder is only a fallback, for
-                # anyone who deleted the bundled copy by mistake.
-                here = Path(__file__).resolve().parent / "video_optimizer_scan.py"
-                sibling = (Path(__file__).resolve().parent.parent
-                           / "video-meta-scan" / "video_optimizer_scan.py")
-                for candidate in (here, sibling):
-                    if candidate.is_file():
-                        analyzer = candidate
-                        break
-            if analyzer is None:
-                print("ERROR: scanner not found. Pass --analyzer <path> or "
-                      "--no-scan with an existing report.", file=sys.stderr)
+            if analyzer is not None and not analyzer.is_file():
+                print(f"ERROR: --analyzer file not found: {analyzer}",
+                      file=sys.stderr)
                 return 2
             print(f"[1/4] Inspect: scanning {args.scan_dir}")
             report = run_scan(analyzer, args.scan_dir, args.reports_dir,
