@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="560" viewBox="0 0 920 560" font-family="system-ui, sans-serif" font-size="14">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#555"/></marker>
+  </defs>
+  <style>
+    .box { fill: #f4f4f4; stroke: #555; stroke-width: 1.5; rx: 10; }
+    .box-drive { fill: #eef4ff; stroke: #2b5ea7; stroke-width: 2; rx: 10; }
+    .box-safe { fill: #eef7ee; stroke: #2e7d32; stroke-width: 2; rx: 10; }
+    .box-watch { fill: #fff7e6; stroke: #b26a00; stroke-width: 1.5; rx: 10; }
+    .title { font-weight: 700; font-size: 15px; }
+    .sub { font-size: 12px; fill: #444; }
+    .edge { stroke: #555; stroke-width: 1.5; marker-end: url(#arrow); }
+    .edge-note { font-size: 11px; fill: #555; }
+  </style>
+
+  <!-- Row 1: driver -->
+  <g>
+    <rect class="box-drive" x="310" y="10" width="300" height="70"/>
+    <text class="title" x="460" y="38" text-anchor="middle">pipeline.py (driver)</text>
+    <text class="sub" x="460" y="58" text-anchor="middle">scan → import → convert · PID lockfile</text>
+  </g>
+
+  <!-- Row 2: scan / report / state -->
+  <g>
+    <rect class="box" x="30" y="130" width="240" height="80"/>
+    <text class="title" x="150" y="158" text-anchor="middle">video_optimizer_scan.py</text>
+    <text class="sub" x="150" y="178" text-anchor="middle">ffprobe · candidates · bloat · cropdetect</text>
+    <text class="sub" x="150" y="196" text-anchor="middle">+ dvd / camcorder ingest lanes</text>
+  </g>
+  <g>
+    <rect class="box" x="340" y="130" width="240" height="80"/>
+    <text class="title" x="460" y="158" text-anchor="middle">Report (JSON / CSV)</text>
+    <text class="sub" x="460" y="178" text-anchor="middle">Estimated_* · Conversion_Status</text>
+    <text class="sub" x="460" y="196" text-anchor="middle">Swap_Status after a swap</text>
+  </g>
+  <g>
+    <rect class="box" x="650" y="130" width="240" height="80"/>
+    <text class="title" x="770" y="158" text-anchor="middle">state.db (SQLite)</text>
+    <text class="sub" x="770" y="178" text-anchor="middle">state_manager.py · atomic claims</text>
+    <text class="sub" x="770" y="196" text-anchor="middle">fingerprint: path + size + mtime</text>
+  </g>
+
+  <!-- Row 3: converter -->
+  <g>
+    <rect class="box" x="30" y="280" width="240" height="80"/>
+    <text class="title" x="150" y="308" text-anchor="middle">hevc_convert.py</text>
+    <text class="sub" x="150" y="328" text-anchor="middle">staging on same filesystem</text>
+    <text class="sub" x="150" y="346" text-anchor="middle">SIGINT → interrupted, never converted</text>
+  </g>
+  <g>
+    <rect class="box" x="340" y="280" width="240" height="80"/>
+    <text class="title" x="460" y="308" text-anchor="middle">encoders.py</text>
+    <text class="sub" x="460" y="328" text-anchor="middle">x265 CRF · NVENC CQ · QSV global_quality</text>
+    <text class="sub" x="460" y="346" text-anchor="middle">preflight, no silent fallback</text>
+  </g>
+  <g>
+    <rect class="box" x="650" y="280" width="240" height="80"/>
+    <text class="title" x="770" y="308" text-anchor="middle">quality_check.py (gate)</text>
+    <text class="sub" x="770" y="328" text-anchor="middle">HEVC · duration · audio · full decode</text>
+    <text class="sub" x="770" y="346" text-anchor="middle">fail → staging deleted, job not converted</text>
+  </g>
+
+  <!-- Row 4: outputs -->
+  <g>
+    <rect class="box-safe" x="30" y="430" width="240" height="80"/>
+    <text class="title" x="150" y="458" text-anchor="middle">converted/ tree</text>
+    <text class="sub" x="150" y="478" text-anchor="middle">HEVC files, originals untouched</text>
+  </g>
+  <g>
+    <rect class="box-safe" x="340" y="430" width="240" height="80"/>
+    <text class="title" x="460" y="458" text-anchor="middle">swap_originals.py</text>
+    <text class="sub" x="460" y="478" text-anchor="middle">verify → stage copy → .bak → atomic publish</text>
+    <text class="sub" x="460" y="496" text-anchor="middle">rollback on failure · --recover</text>
+  </g>
+  <g>
+    <rect class="box" x="650" y="430" width="240" height="80"/>
+    <text class="title" x="770" y="458" text-anchor="middle">Library (Plex / Jellyfin)</text>
+    <text class="sub" x="770" y="478" text-anchor="middle">same paths after swap (except .avi→.mkv)</text>
+  </g>
+
+  <!-- Dashboard: side, read-only -->
+  <g>
+    <rect class="box-watch" x="650" y="10" width="240" height="70"/>
+    <text class="title" x="770" y="38" text-anchor="middle">dashboard.py (read-only)</text>
+    <text class="sub" x="770" y="58" text-anchor="middle">Flask · no auth · bind loopback</text>
+  </g>
+
+  <!-- Edges -->
+  <line class="edge" x1="270" y1="170" x2="340" y2="170"/>
+  <line class="edge" x1="580" y1="170" x2="650" y2="170"/>
+  <line class="edge" x1="770" y1="210" x2="770" y2="280"/>
+  <text class="edge-note" x1="780" y1="250">claims</text>
+  <line class="edge" x1="270" y1="320" x2="340" y2="320"/>
+  <line class="edge" x1="580" y1="320" x2="650" y2="320"/>
+  <line class="edge" x1="150" y1="360" x2="150" y2="430"/>
+  <text class="edge-note" x1="160" y1="400">verified encode</text>
+  <line class="edge" x1="270" y1="470" x2="340" y2="470"/>
+  <line class="edge" x1="580" y1="470" x2="650" y2="470"/>
+  <line class="edge" x1="770" y1="80" x2="770" y2="130"/>
+  <text class="edge-note" x1="780" y1="108">reads only</text>
+  <line class="edge" x1="460" y1="80" x2="460" y2="130" stroke-dasharray="5,4"/>
+  <text class="edge-note" x1="470" y1="108">drives</text>
+</svg>

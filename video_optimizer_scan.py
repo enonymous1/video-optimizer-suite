@@ -46,6 +46,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+# Shared console logger (see common.py): the same helper the converter
+# and swap script use, so log formatting cannot drift between tools.
+# The scanner runs from its own folder, where common.py sits next to
+# it; keep a plain-print fallback so a lone copied scanner still runs.
+try:
+    from common import log_msg as _log
+except ImportError:  # pragma: no cover - lone scanner copy, no common.py
+    _print_lock = threading.Lock()
+
+    def _log(msg: str) -> None:
+        with _print_lock:
+            print(msg, flush=True)
+
 # ---------------------------------------------------------------------------
 # Optional progress bar
 # ---------------------------------------------------------------------------
@@ -128,15 +141,6 @@ CSV_COLUMNS = [
 # Rows hevc_convert.py marks as done; the scanner preserves these per path.
 CONVERTED_STATES = {"converted", "converted_no_subs"}
 
-# Serialize console output so threaded progress logs never interleave.
-_print_lock = threading.Lock()
-
-
-def _log(msg: str) -> None:
-    with _print_lock:
-        print(msg, flush=True)
-
-
 # ---------------------------------------------------------------------------
 # ffprobe plumbing
 # ---------------------------------------------------------------------------
@@ -205,16 +209,24 @@ def _aspect_ratio(stream: dict, width: int | None, height: int | None) -> str | 
 
 
 def _bit_depth(pix_fmt: str | None) -> int | None:
-    """Infer bit depth from pixel format name ('yuv420p10le' -> 10)."""
+    """Infer bit depth from pixel format name ('yuv420p10le' -> 10).
+
+    Suffixes first, never substrings: the old substring checks
+    reported NV12 (an 8-bit format — the "12" is its 4:2:0 bits-per-
+    pixel average, not its depth) as 12-bit, and would have done
+    the same for any future format containing "12" or "10" in its
+    name. Only explicit p10/p12/p16 suffixes claim those depths.
+    """
     if not pix_fmt:
         return None
     low = pix_fmt.lower()
-    if "16" in low:
-        return 16
-    if "12" in low:
-        return 12
-    if "10" in low:
-        return 10
+    for suffix, depth in (("p16le", 16), ("p16be", 16),
+                          ("p12le", 12), ("p12be", 12),
+                          ("p10le", 10), ("p10be", 10)):
+        if low.endswith(suffix):
+            return depth
+    if low in ("nv12", "nv21") or low.startswith("nv"):
+        return 8
     if "p" in low:  # yuv420p, yuv444p, ... -> 8-bit planar family
         return 8
     return None

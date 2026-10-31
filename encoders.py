@@ -51,21 +51,41 @@ _FFMPEG_ENCODER = {"x265": "libx265", "nvenc": "hevc_nvenc", "qsv": "hevc_qsv"}
 
 
 def resolve_nvenc_preset(preset: str) -> str:
-    """Map an x265 preset name (or a literal p1..p7) to an NVENC preset."""
+    """Map an x265 preset name (or a literal p1..p7) to an NVENC preset.
+
+    Raises ValueError on an unknown name. Previously this silently
+    returned "p7" for any typo (e.g. "slwo" became best-quality
+    NVENC), while x265/QSV raised — an asymmetry that hid typos
+    exactly where they change encode time and file size.
+    """
     p = preset.strip().lower()
     if p in NVENC_PRESETS:
         return p
-    return NVENC_PRESET_MAP.get(p, "p7")
+    if p in NVENC_PRESET_MAP:
+        return NVENC_PRESET_MAP[p]
+    raise ValueError(f"unknown NVENC preset {preset!r} (want p1..p7 or an x265 name)")
 
 
 def pixel_format(bit_depth: int | None, encoder: str) -> str:
-    """Output pixel format, preserving 10-bit sources to avoid banding."""
+    """Output pixel format, preserving the source bit depth.
+
+    10-bit sources keep 10-bit (p010le on QSV, yuv420p10le elsewhere)
+    to avoid banding; 12-bit sources keep 12-bit (p012le / yuv420p12le).
+    Previously any depth other than exactly 10 fell through to 8-bit,
+    so a 12-bit source was silently downconverted with no warning.
+    Depths outside {None, 8, 10, 12} raise instead of guessing: a
+    16-bit source encoded as 8-bit would be a quiet quality loss.
+    """
     if bit_depth == 10:
         # QSV wants p010le (its native 10-bit surface); the other two
         # accept yuv420p10le. NVENC also accepts p010le, but yuv420p10le
         # matches the v1 converter's behaviour.
         return "p010le" if encoder == "qsv" else "yuv420p10le"
-    return "nv12" if encoder == "qsv" else "yuv420p"
+    if bit_depth == 12:
+        return "p012le" if encoder == "qsv" else "yuv420p12le"
+    if bit_depth in (None, 8):
+        return "nv12" if encoder == "qsv" else "yuv420p"
+    raise ValueError(f"unsupported bit depth {bit_depth!r} (want 8, 10, or 12)")
 
 
 def video_args(encoder: str, quality: int, preset: str,

@@ -103,10 +103,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from common import atomic_write_json as _atomic_write_json  # noqa: E402
+from common import fmt_bytes as _fmt_bytes  # noqa: E402
+from common import fmt_seconds as _fmt_seconds  # noqa: E402
+from common import log_msg as _log  # noqa: E402
 from dvd_ingest import write_concat_list  # noqa: E402
 from encoders import (  # noqa: E402
     NVENC_PRESETS, QSV_PRESETS, X265_PRESETS, encoder_available,
-    quality_label, resolve_nvenc_preset, video_args,
+    quality_label, video_args,
 )
 from quality_check import probe as probe_media  # noqa: E402
 from quality_check import verify as verify_files  # noqa: E402
@@ -132,33 +136,9 @@ LOG_COLUMNS = [
     "Elapsed_Seconds", "CRF", "Preset",
 ]
 
-_print_lock = threading.Lock()
 _SHUTDOWN = threading.Event()
 _ACTIVE_PROCS: set[subprocess.Popen] = set()
 _PROCS_LOCK = threading.Lock()
-
-
-def _log(msg: str) -> None:
-    with _print_lock:
-        print(msg, flush=True)
-
-
-def _fmt_bytes(n: float) -> str:
-    n = float(n or 0)
-    sign = "-" if n < 0 else ""
-    n = abs(n)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024 or unit == "TB":
-            return f"{sign}{n:.1f} {unit}"
-        n /= 1024
-    return f"{sign}{n:.1f} TB"
-
-
-def _fmt_seconds(s: float) -> str:
-    s = int(s)
-    h, r = divmod(s, 3600)
-    m, s = divmod(r, 60)
-    return f"{h}h{m:02d}m" if h else f"{m}m{s:02d}s"
 
 
 def _install_signal_handlers(on_interrupt: Any) -> None:
@@ -676,6 +656,11 @@ def convert_one(row: dict, args: argparse.Namespace,
     # Container switch only matters for --replace: the final path's
     # extension changes (avi -> mkv), so the "replace" is a move + a
     # delete of the old path, not an os.replace onto the same path.
+    # Why it matters beyond the code: Plex/Jellyfin key library
+    # entries by path, so a switched file appears as a *new* file
+    # (and the old path disappears) even though the content is the
+    # same title — rescan after a container-switching run, and do
+    # not be surprised that watch history follows the old path.
     container_switched = None
     if args.replace and final.suffix.lower() not in HEVC_CONTAINERS:
         container_switched = (final.suffix.lower(), ".mkv")
@@ -832,36 +817,64 @@ def convert_one(row: dict, args: argparse.Namespace,
         detail += f"; WARNING: output larger by {_fmt_bytes(-saved * 1024 ** 3)}"
     status = "converted" if used_subs else "converted_no_subs"
 
+    # A signal during verification must not publish: the user asked
+    # to stop, and nothing has moved yet, so stopping here is free.
+    # (The decode subprocess itself runs to completion — it is a
+    # plain subprocess.run, not registered for termination — but
+    # this check guarantees its result is never published after a
+    # shutdown request.)
+    if _SHUTDOWN.is_set():
+        _cleanup(staging)
+        return finish("interrupted", "shutdown after verification (original untouched)")
+
     # ---- replace / publish ------------------------------------------------
+    # publish_backup is recorded BEFORE the publish attempt, so a
+    # failed publish (or a failed rollback) can tell the user where
+    # the original actually is. Previously Backup_Path was only set
+    # after a successful publish, and the failure message claimed
+    # "original untouched" even when the rollback had failed.
+    publish_backup: Path | None = None
     try:
         if args.replace:
             backup: Path | None = None
             if args.backup_dir is not None:
                 args.backup_dir.mkdir(parents=True, exist_ok=True)
                 backup = args.backup_dir / src.name
-                n = 1
+                # First collision is _1 (not _2): n starts at 0 so the
+                # first numbered name is stem_1, matching swap_originals.
+                n = 0
                 while backup.exists():
                     n += 1
                     backup = args.backup_dir / f"{src.stem}_{n}{src.suffix}"
                 shutil.move(str(src), str(backup))
             else:
                 backup = src.with_suffix(src.suffix + ".bak")
-                n = 1
+                n = 0
                 while backup.exists():
                     n += 1
                     backup = src.with_name(f"{src.name}.{n}.bak")
                 os.replace(src, backup)
+            publish_backup = backup
+            log["Backup_Path"] = str(backup)
             try:
                 os.replace(staging, final)
             except OSError:
                 # Roll back: put the original back, staging is deleted
-                # below, and the job is NOT marked converted.
+                # below, and the job is NOT marked converted. Note
+                # what is NOT done here: final is never deleted.
+                # os.replace is atomic, so a failed publish leaves
+                # final exactly as it was — deleting it would destroy
+                # a pre-existing file (possible with --overwrite and
+                # a container switch) that this run never owned.
+                # The restore also handles a cross-filesystem backup
+                # (--backup-dir on another drive) via shutil.move.
                 try:
-                    if final != src:
-                        _cleanup(final)
                     os.replace(backup, src)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    if getattr(exc, "errno", None) == 18:  # EXDEV
+                        shutil.move(str(backup), str(src))
+                    else:
+                        raise
                 raise
             # Preserve timestamps + permissions from the original.
             # (Linux birth/creation time cannot be set via stdlib; mtime
@@ -888,6 +901,15 @@ def convert_one(row: dict, args: argparse.Namespace,
             os.replace(staging, final)
     except OSError as exc:
         _cleanup(staging)
+        # Only claim "original untouched" when it is actually true.
+        # If the rollback above failed, the original path is missing
+        # and the original lives at publish_backup — saying otherwise
+        # would send the user looking in the wrong place.
+        if publish_backup is not None and not src.exists() and publish_backup.exists():
+            return finish("failed",
+                          f"publish/replace failed ({exc}) and rollback failed: "
+                          f"original is at backup {publish_backup} -- "
+                          f"restore it by hand")
         return finish("failed", f"publish/replace failed, original untouched: {exc}")
 
     # Sidecars exiftool could not merge (or no exiftool at all) are
@@ -1318,7 +1340,11 @@ def main(argv: list[str] | None = None) -> int:
     print_summary(logs)
     if not args.replace:
         print("\nOriginals were left untouched. Verify a few outputs, then "
-              "re-run with --replace (backups kept) when you are happy.")
+              "use swap_originals.py --report <report> --yes (backups kept) "
+              "to swap the verified encodes into place without re-encoding. "
+              "Do NOT re-run with --replace for already-converted files: "
+              "--skip-done would select nothing, and --no-skip-done would "
+              "re-encode everything.")
     if db is not None:
         db.close()
     return 0 if not _SHUTDOWN.is_set() else 130

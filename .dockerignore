@@ -1,0 +1,28 @@
+# Docker build context exclusions. .gitignore does NOT apply to
+# Docker builds, so without this file `COPY . /app/` bakes the
+# repository metadata, scan reports, converted outputs, and the
+# state database into every image — including library paths and
+# conversion history that must never ship in an image.
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+reports/
+converted/
+state/
+logs/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.lock
+*.bak
+*.log
+*.conversion.json
+.*hevc-part*
+.*swap-part*
+swap_log.csv
+swap_log.json
+stills/

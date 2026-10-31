@@ -124,7 +124,23 @@ CREATE INDEX IF NOT EXISTS idx_files_candidate ON files(candidate);
 """
 
 CONVERTED = ("converted", "converted_no_subs")
+# Statuses a re-import may reset to pending (see import_report):
+# anything a user deliberately set — skipped, verified — is NOT here,
+# and neither is "converting" (a running job must never be stolen).
 RETRYABLE = ("pending", "queued", "failed", "failed_verify", "interrupted", "skipped")
+# Statuses claim_next() actually takes ownership of. Deliberately
+# narrower than RETRYABLE: a user-skipped job is listable (it shows
+# in pending_jobs, so the user can see it) but never claimed behind
+# their back, and "queued" is a legacy status with no claimer.
+# Listing and claiming disagreeing was previously undocumented;
+# the distinction is now the contract, not an accident.
+CLAIMABLE = ("pending", "failed", "failed_verify", "interrupted")
+# Statuses import_report() resets to pending. CLAIMABLE plus the
+# legacy "queued" (resetting it to pending is what makes a queued
+# job claimable at all). "skipped" and "verified" are deliberately
+# absent: a re-import must not silently un-skip a file or discard
+# a verification a user is relying on.
+RESET_ON_IMPORT = CLAIMABLE + ("queued",)
 
 
 def _now() -> str:
@@ -303,8 +319,13 @@ class StateDB:
                 # Re-scan of a non-converted file: refresh metadata, and
                 # reset retryable/failed rows to pending so they are
                 # eligible again. A row mid-flight (converting) is left
-                # alone -- an import must never steal a running job.
-                if existing["status"] != "converting":
+                # alone -- an import must never steal a running job --
+                # and neither are user decisions: a skipped or
+                # verified row previously reset to pending here, so
+                # a routine re-import silently un-skipped files.
+                # Only RESET_ON_IMPORT statuses move; everything else
+                # keeps its status while its metadata refreshes.
+                if existing["status"] in RESET_ON_IMPORT:
                     cols["status"] = "pending"
                 set_clause = ",".join(f"{k}=?" for k in cols if k != "path")
                 self.conn.execute(
@@ -322,11 +343,14 @@ class StateDB:
                      include_modern: bool = False) -> list[dict]:
         """List retryable jobs, biggest estimated saving first.
 
-        This is a read: it does not claim anything. The converter calls
-        claim_next() (or claim_batch()) to take ownership.
+        This is a read: it does not claim anything. It lists RETRYABLE
+        statuses — including "skipped" and "queued" — so a user can
+        see jobs claim_next() will never take (see CLAIMABLE). The
+        converter calls claim_next() (or claim_batch()) to take
+        ownership.
         """
-        sql = ("SELECT * FROM files WHERE status IN "
-               "('pending','failed','failed_verify','interrupted','skipped')")
+        _in = ",".join(f"'{s}'" for s in RETRYABLE)
+        sql = f"SELECT * FROM files WHERE status IN ({_in})"
         params: list[Any] = []
         if priority:
             sql += " AND candidate = ?"
@@ -348,14 +372,18 @@ class StateDB:
                    include_modern: bool = False) -> dict | None:
         """Atomically claim the single best pending job.
 
-        BEGIN IMMEDIATE serialises claimers: two processes racing here
-        cannot both get the same row, because the UPDATE only matches
-        rows still in a retryable status.
+        Only CLAIMABLE statuses are taken (see the constant: skipped
+        jobs are listable but never claimed). Correctness rests on
+        the UPDATE's rowcount guard plus SQLite locking — the
+        transaction here is deferred, not BEGIN IMMEDIATE as an
+        earlier docstring claimed; the guard is what makes a lost
+        race safe, not the transaction mode.
         """
-        with self.conn:  # transaction: BEGIN IMMEDIATE on first write
+        with self.conn:
+            _claim_in = ",".join(f"'{s}'" for s in CLAIMABLE)
             row = self.conn.execute(
                 "SELECT * FROM files WHERE status IN "
-                "('pending','failed','failed_verify','interrupted') "
+                f"({_claim_in}) "
                 + ("AND candidate = ? " if priority else "")
                 + ("AND COALESCE(estimated_savings_gb, 0) >= ? " if min_savings_gb else "")
                 + ("AND COALESCE(video_codec, '') NOT IN ('HEVC','AV1','VP9') "
@@ -369,7 +397,7 @@ class StateDB:
             cur = self.conn.execute(
                 "UPDATE files SET status='converting', attempts=attempts+1,"
                 " updated_at=? WHERE path=? AND status IN"
-                " ('pending','failed','failed_verify','interrupted')",
+                f" ({_claim_in})",
                 (_now(), row["path"]))
             if cur.rowcount != 1:
                 return None  # lost the race; caller tries the next job

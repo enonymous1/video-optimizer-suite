@@ -129,6 +129,34 @@ def main() -> int:
         db.conn.commit()
         n = db.mark_all_converting_interrupted()
         check("stuck converting row recovered to interrupted", n == 1)
+
+        # 4. Import preserves user decisions; claim never takes a skip.
+        # (Regression for the old behaviour where any re-import reset
+        # skipped/verified rows to pending.)
+        db2_path = root / "state2.db"
+        db2 = StateDB(db2_path)
+        row_a = {"Path": str(root / "keep_pending.mkv"), "Filename": "keep_pending.mkv",
+                 "Size_GB": 0.001, "Duration_Seconds": 5.0,
+                 "Video_Codec": "H.264", "Resolution": "320x240",
+                 "Optimization_Candidate": "High Priority",
+                 "Estimated_Savings_GB": 0.001}
+        row_b = dict(row_a, Path=str(root / "user_skipped.mkv"),
+                     Filename="user_skipped.mkv")
+        row_c = dict(row_a, Path=str(root / "user_verified.mkv"),
+                     Filename="user_verified.mkv")
+        db2.import_report([row_a, row_b, row_c])
+        db2.set_status(row_b["Path"], "skipped", "user skipped")
+        db2.set_status(row_c["Path"], "verified", "user verified")
+        db2.import_report([row_a, row_b, row_c])  # re-import must not reset them
+        st = {r["path"]: r["status"] for r in db2.conn.execute(
+            "SELECT path, status FROM files")}
+        check("re-import preserves skipped", st[row_b["Path"]] == "skipped", str(st))
+        check("re-import preserves verified", st[row_c["Path"]] == "verified", str(st))
+        claimed = db2.claim_next(priority="High Priority")
+        check("claim_next never claims a skipped row",
+              claimed is not None and claimed["path"] == row_a["Path"],
+              str(claimed))
+        db2.close()
         db.close()
 
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll smoke checks passed.")

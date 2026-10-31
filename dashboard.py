@@ -25,6 +25,12 @@ No actions are exposed: this dashboard is read-only by design. A web
 "delete originals" or "re-run encode" button on a headless server is
 how libraries get lost. Conversions are started from the CLI / cron,
 where --replace and --yes are explicit decisions, not clicks.
+
+Security note, read before binding: there is NO authentication,
+TLS, or rate limiting here, and /api/queue returns full filesystem
+paths — a library inventory. Bind loopback (127.0.0.1, the
+default) for local use; expose it on a LAN only behind a reverse
+proxy with auth (or a firewall rule), never by bare --host 0.0.0.0.
 """
 from __future__ import annotations
 
@@ -58,7 +64,7 @@ form{margin:1rem 0}input,select{padding:.3rem}
     {% for k in source_kinds %}<option value="{{ k }}" {{ 'selected' if k==source_kind else '' }}>{{ k }}</option>{% endfor %}</select>
   <button>Filter</button>
 </form>
-<p>{{ rows|length }} file(s) &middot; <a href="/api/queue?status={{ status }}&candidate={{ candidate }}&source_kind={{ source_kind }}&q={{ q }}">JSON</a></p>
+<p>Showing {{ rows|length }} of {{ s.total_files }} file(s) &middot; <a href="/api/queue?status={{ status|urlencode }}&amp;candidate={{ candidate|urlencode }}&amp;source_kind={{ source_kind|urlencode }}&amp;q={{ q|urlencode }}">JSON</a></p>
 <table><tr><th>Status</th><th>File</th><th>Source</th><th>Size</th><th>Codec</th><th>Res</th><th>Est. save</th><th>Actual save</th></tr>
 {% for r in rows %}<tr>
 <td>{{ r.status }}</td>
@@ -91,7 +97,12 @@ DETAIL_TEMPLATE = """
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    # 30 s, not SQLite's 5 s default: the converter holds write locks
+    # for whole encodes, and a dashboard query timing out mid-encode
+    # is the most common 500 this view produces. A busy database
+    # still surfaces as a 503 (see the error handler in create_app),
+    # not a stack trace.
+    conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -132,8 +143,13 @@ def _queue(conn: sqlite3.Connection, status: str, candidate: str,
         sql += " AND source_kind = ?"
         params.append(source_kind)
     if q:
-        sql += " AND (filename LIKE ? OR path LIKE ?)"
-        params += [f"%{q}%", f"%{q}%"]
+        # Escape LIKE wildcards in the user's term: without this, a
+        # search for "%" matches every row (filter bypass, not
+        # injection — the parameters themselves are already safe).
+        q_esc = (q.replace("\\", "\\\\").replace("%", "\\%")
+                  .replace("_", "\\_"))
+        sql += " AND (filename LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\')"
+        params += [f"%{q_esc}%", f"%{q_esc}%"]
     sql += " ORDER BY COALESCE(estimated_savings_gb,0) DESC LIMIT ?"
     params.append(limit)
     return [dict(r) for r in conn.execute(sql, params)]
@@ -141,7 +157,23 @@ def _queue(conn: sqlite3.Connection, status: str, candidate: str,
 
 def create_app(db_path: Path) -> Flask:
     app = Flask(__name__)
+    # Force Jinja autoescaping ON. These templates are string
+    # templates (render_template_string), which have no filename, so
+    # Flask's default extension-based autoescape selection leaves
+    # them UNESCAPED: a filename like '"><svg onload=x>' from disk,
+    # or a ?q= value reflected into the search box, would render as
+    # live HTML. With autoescape forced on, {{ summary_html|safe }}
+    # stays intentional (that fragment is rendered by this same
+    # engine, so its own variables are escaped before insertion).
+    # If this ever moves to templates/*.html files, this line becomes
+    # redundant — do not delete it until then.
+    app.jinja_env.autoescape = True
     app.config["DB_PATH"] = Path(db_path)
+
+    @app.errorhandler(sqlite3.OperationalError)
+    def _db_busy(_exc: Exception) -> tuple[str, int]:
+        return ("Database is busy (the converter holds the write lock); "
+                "wait a moment and refresh."), 503
 
     @app.get("/")
     def index() -> str:
@@ -164,7 +196,7 @@ def create_app(db_path: Path) -> Flask:
             rows = _queue(conn, status, candidate, q, source_kind=source_kind)
             summary_html = render_template_string(SUMMARY_TEMPLATE, s=s)
             return render_template_string(
-                BASE_TEMPLATE, summary_html=summary_html, rows=rows,
+                BASE_TEMPLATE, summary_html=summary_html, rows=rows, s=s,
                 statuses=statuses, candidates=candidates,
                 source_kinds=source_kinds,
                 status=status, candidate=candidate,
