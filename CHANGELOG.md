@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.4.1 — 2026-10-31: CI ffmpeg fix
+
+First CI run (2026-10-31) failed on every job with
+`FileNotFoundError: 'ffmpeg'`: GitHub's runner images do not
+ship ffmpeg/ffprobe, and the workflow never installed them —
+while its comment claimed the suites "exit 0 with a SKIP"
+without ffmpeg, which was only true for the DVD/camcorder
+suites. Fixed both halves:
+
+- CI now installs ffmpeg on both runner OSes (`apt` on
+  Ubuntu, `choco` on Windows, whose shim is already on PATH),
+  so the encode suites run for real on CI instead of skipping.
+- `test_smoke.py` and `test_swap_originals.py` now exit 0
+  with a `SKIP: ffmpeg/ffprobe not on PATH` message when the
+  tools are absent, instead of crashing — verified by running
+  both suites with ffmpeg hidden from PATH.
+
 ## v2.4.0 — 2026-10-31: package migration
 
 The flat root scripts are gone. All code lives in the

@@ -29,6 +29,7 @@ Covers the failure modes that would make a swap dangerous:
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,12 @@ def _log_entry(original: Path, converted: Path) -> dict:
 
 
 def main() -> int:
+    # Fixtures are built with ffmpeg/ffprobe; without them, skip
+    # honestly instead of crashing with FileNotFoundError (the
+    # failure mode seen on GitHub runners 2026-10-31).
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        print("SKIP: ffmpeg/ffprobe not on PATH")
+        return 0
     failures: list[str] = []
 
     def check(name: str, cond: bool, detail: str = "") -> None:

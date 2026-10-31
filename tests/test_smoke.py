@@ -60,6 +60,14 @@ def _convert_args(**overrides) -> argparse.Namespace:
 
 
 def main() -> int:
+    # Every fixture in this suite is built with ffmpeg/ffprobe.
+    # Without them the suite used to crash with FileNotFoundError
+    # (seen on GitHub runners 2026-10-31); skip honestly instead.
+    # The DVD/camcorder suites already had this guard; smoke and
+    # swap did not, which is why smoke was the one that failed.
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        print("SKIP: ffmpeg/ffprobe not on PATH")
+        return 0
     failures: list[str] = []
 
     def check(name: str, cond: bool, detail: str = "") -> None:

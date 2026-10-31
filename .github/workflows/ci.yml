@@ -18,17 +18,31 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the package
         # Installs the console scripts and their runtime deps
-        # (Flask for the dashboard test); the encode suites need
-        # ffmpeg/ffprobe on the runner in addition (see the note
-        # below). pyproject pins floors only, no lockfile yet.
+        # (Flask for the dashboard test). pyproject pins floors
+        # only, no lockfile yet.
         run: python -m pip install -e .
+      - name: Install ffmpeg (Ubuntu)
+        # GitHub's runner images do NOT ship ffmpeg/ffprobe, and
+        # every encode suite builds its fixtures with them — without
+        # this step the suites died with FileNotFoundError (seen
+        # 2026-10-31 on the 3.11 job; all six jobs were affected).
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (Windows)
+        # choco's ffmpeg shim lands in C:\ProgramData\chocolatey\bin,
+        # which is already on PATH, so later steps find it.
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y
       - name: Compile all scripts
         run: python -m compileall -q . tests
       - name: Run test suites
-        # The test scripts exit 0 with a SKIP message when
-        # ffmpeg/ffprobe are not on PATH (Windows runners), and
-        # run the real encodes on runners that have them.
-        # test_dashboard.py likewise skips when Flask is missing.
+        # The encode suites run for real now that ffmpeg is
+        # installed above; if ffmpeg/ffprobe are ever absent
+        # (a local checkout without them, a failed install step),
+        # they exit 0 with a SKIP message instead of crashing —
+        # that fallback is real code in each suite's main(),
+        # not just this comment. test_dashboard.py likewise
+        # skips when Flask is missing.
         run: |
           python tests/test_smoke.py
           python tests/test_dvd_ingest.py

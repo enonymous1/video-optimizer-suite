@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-optimizer"
-version = "2.4.0"
+version = "2.4.1"
 description = "Inspect, convert, verify, and swap a Plex/Jellyfin library to HEVC — without ever touching an original until you say so."
 readme = "README.md"
 license = { text = "MIT" }
